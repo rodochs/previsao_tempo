@@ -1,0 +1,414 @@
+<!doctype html>
+<html lang="pt-br">
+
+<head>
+  <meta charset="utf-8">
+  <meta content="" name="description">
+  <title>Previsão do Tempo</title>
+  <script src="https://assets.hgbrasil.com/weather/js/hg-weather-1.0.js" type="text/javascript"></script>
+  <link rel="stylesheet" href="https://openlayers.org/en/v6.13.0/css/ol.css" type="text/css">
+  <script src="https://openlayers.org/en/v6.13.0/build/ol.js"></script>
+
+  <style type="text/css" media="screen">
+    body {
+      font-family: Arial;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+    }
+
+    #map {
+      width: 100%;
+      height: 100vh;
+      position: absolute;
+      top: 0;
+      left: 0;
+      z-index: 0;
+    }
+
+    #conteudo {
+      position: absolute;
+      top: 20px;
+      left: 50px;
+      bottom: 20px;
+      z-index: 1;
+      width: 20%;
+      min-width: 300px;
+      height: calc(90vh - 40px);
+      background-color: rgba(255, 255, 255, 0.8);
+      border-radius: 15px;
+      padding: 20px;
+      box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.5);
+      transition: height 0.5s ease;
+    }
+
+    #conteudo.recolhido {
+      height: 20%;
+    }
+
+    #dados_previsao {
+      overflow-y: auto;
+      height: 90%;
+      margin-bottom: 50px;
+      margin: auto;
+      font-size: 16px;
+      color: #333;
+      text-align: center;
+      align-content: center;
+    }
+
+    .linha-container {
+      display: flex;
+      /* Define um flex container */
+      align-items: center;
+      width: 100%;
+      justify-content: center;
+      /* Centraliza os itens verticalmente */
+    }
+
+    .linha-container p {
+      margin-left: 20px;
+      /* Adiciona margem à direita entre os elementos */
+    }
+
+    .data-atual {
+      font-size: 11px;
+    }
+
+    .nome-cidade {
+      font-size: 25px;
+      font-weight: bold;
+    }
+
+    .temperatura-atual {
+      font-size: 25px;
+      font-weight: bold;
+
+    }
+
+    .temp-max {
+      font-size: 18px;
+      font-weight: bold;
+      color: rgb(255, 106, 106);
+    }
+
+    .temp-min {
+      font-size: 18px;
+      font-weight: bold;
+      color: rgb(0, 110, 255);
+    }
+
+    #select-container {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      z-index: 999;
+    }
+
+    #select-container select {
+      font-size: 16px;
+      padding: 5px;
+      border-radius: 5px;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="map"></div>
+  <div id="popup" class="ol-popup">
+    <a href="#" id="popup-closer" class="ol-popup-closer"></a>
+    <div id="popup-content"></div>
+  </div>
+  <div id="conteudo" style="text-align: center;">
+    <div>
+      <input type="text" id="endereco">
+      <button onclick="buscarEndereco()">Ver Previsão</button>
+    </div>
+    <div id="dados_previsao"></div>
+  </div>
+  <div id="select-container">
+    <select id="cidadesRecentes"></select>
+  </div>
+
+  <script>
+    // Função para buscar o endereço e exibir os dados do tempo
+    function buscarEndereco() {
+      var endereco = document.getElementById('endereco').value;
+      if (endereco) {
+        var url = 'https://nominatim.openstreetmap.org/search?format=json&q=' + encodeURIComponent(endereco);
+        fetch(url)
+          .then(response => response.json())
+          .then(data => {
+            if (data.length > 0) {
+              var latitude = parseFloat(data[0].lat);
+              var longitude = parseFloat(data[0].lon);
+              map.getView().setCenter(ol.proj.fromLonLat([longitude, latitude]));
+              map.getView().setZoom(12);
+
+              url = "https://api.hgbrasil.com/weather?format=json-cors&key=5d34a30e&city_name=" + encodeURIComponent(endereco);
+
+              fetch(url)
+                .then(response => response.json())
+                .then(data => {
+                  var dados = data;
+                  exibirDadosTempo(dados);
+                  addCidadeRecente(dados.results.city); // Adicionar a cidade buscada recentemente ao cache
+                })
+                .catch(error => {
+                  console.error('Erro ao buscar dados do tempo:', error);
+                });
+            } else {
+              alert("Endereço não encontrado.");
+            }
+          })
+          .catch(error => {
+            console.error('Erro ao buscar endereço:', error);
+          });
+      } else {
+        alert("Por favor, digite um endereço.");
+      }
+    }
+
+    // Função para exibir os dados do tempo
+    function exibirDadosTempo(dados) {
+      var dadosPrevisaoDiv = document.getElementById("dados_previsao");
+      // Limpar os dados anteriores
+      dadosPrevisaoDiv.innerHTML = "";
+
+      // Criar elementos HTML para os dados de previsão do tempo
+      var cidadeElement = document.createElement("p");
+      cidadeElement.textContent = dados.results.city;
+      cidadeElement.classList.add("nome-cidade");
+
+      var dataAtualElement = document.createElement("p");
+      dataAtualElement.textContent = dados.results.date;
+      dataAtualElement.classList.add("data-atual");
+
+      var condicaoContainer = document.createElement("div");
+      condicaoContainer.classList.add("linha-container");
+
+      var condicaoAtualElement = document.createElement("img");
+      condicaoAtualElement.src = "https://assets.hgbrasil.com/weather/icons/conditions/" + dados.results.condition_slug + ".svg";
+      condicaoAtualElement.alt = "Condição do Dia";
+      condicaoAtualElement.height = 40;
+      condicaoAtualElement.width = 40;
+
+      var descricaoElement = document.createElement("p");
+      descricaoElement.textContent = dados.results.forecast[0].description;
+
+      condicaoContainer.appendChild(condicaoAtualElement);
+      condicaoContainer.appendChild(descricaoElement);
+
+      var temperaturaContainer = document.createElement("div");
+      temperaturaContainer.classList.add("linha-container");
+
+      var temperaturaAtualElement = document.createElement("p");
+      temperaturaAtualElement.textContent = dados.results.temp + "°C";
+      temperaturaAtualElement.classList.add("temperatura-atual");
+
+      var temperaturaMaximaElement = document.createElement("p");
+      temperaturaMaximaElement.textContent = "max: " + dados.results.forecast[0].max + "°C";
+      temperaturaMaximaElement.classList.add("temp-max");
+
+      var temperaturaMinimaElement = document.createElement("p");
+      temperaturaMinimaElement.textContent = "min: " + dados.results.forecast[0].min + "°C";
+      temperaturaMinimaElement.classList.add("temp-min");
+
+      condicaoContainer.appendChild(temperaturaAtualElement);
+      temperaturaContainer.appendChild(temperaturaMaximaElement);
+      temperaturaContainer.appendChild(temperaturaMinimaElement);
+
+      var luaContainer = document.createElement("div");
+      luaContainer.classList.add("linha-container");
+
+      var faseLuaElement = document.createElement("img");
+      faseLuaElement.src = "https://assets.hgbrasil.com/weather/icons/moon/" + dados.results.moon_phase + ".png";
+      faseLuaElement.alt = "Fase da Lua";
+      faseLuaElement.height = 40;
+      faseLuaElement.width = 40;
+
+      var faseLua;
+
+      switch (dados.results.moon_phase) {
+        case 'first_quarter':
+          faseLua = 'Primeiro Quarto';
+          break;
+        case 'full':
+          faseLua = 'Lua Cheia';
+          break;
+        case 'last_quarter':
+          faseLua = 'Último Quarto';
+          break;
+        case 'new':
+          faseLua = 'Lua Nova';
+          break;
+        case 'waning_crescent':
+          faseLua = 'Minguante Crescente';
+          break;
+        case 'waning_gibbous':
+          faseLua = 'Minguante Gibosa';
+          break;
+        case 'waxing_crescent':
+          faseLua = 'Crescente Crescente';
+          break;
+        case 'waxing_gibbous':
+          faseLua = 'Crescente Gibosa';
+          break;
+        default:
+          faseLua = 'Fase da lua desconhecida';
+      }
+
+      var faseLuaDescricaoElement = document.createElement("p");
+      faseLuaDescricaoElement.textContent = 'Lua: ' + faseLua;
+      luaContainer.appendChild(faseLuaElement);
+      luaContainer.appendChild(faseLuaDescricaoElement);
+
+      var probabilidadeChuvaElement = document.createElement("p");
+      probabilidadeChuvaElement.textContent = "Probabilidade de chuva: " + dados.results.forecast[0].rain_probability + "%";
+
+      // Adicionar os elementos à div 'dados_previsao'
+      dadosPrevisaoDiv.appendChild(cidadeElement);
+      dadosPrevisaoDiv.appendChild(dataAtualElement);
+      dadosPrevisaoDiv.appendChild(condicaoContainer);
+      dadosPrevisaoDiv.appendChild(temperaturaContainer);
+      dadosPrevisaoDiv.appendChild(luaContainer);
+      dadosPrevisaoDiv.appendChild(probabilidadeChuvaElement);
+
+      temperaturaAtualElement.classList.add('temperatura');
+      condicaoAtualElement.classList.add('condicao-atual');
+
+      // Adicionar dados dos próximos dias
+      for (var i = 1; i <= 5; i++) {
+        var diaElement = document.createElement("hr");
+        dadosPrevisaoDiv.appendChild(diaElement);
+
+        var dataProximaElement = document.createElement("p");
+        dataProximaElement.textContent = dados.results.forecast[i].date;
+        dataProximaElement.classList.add("nome-cidade");
+
+        var temperaturaContainerDias = document.createElement("div");
+        temperaturaContainerDias.classList.add("linha-container");
+
+        var temperaturaMaximaProximaElement = document.createElement("p");
+        temperaturaMaximaProximaElement.textContent = "max: " + dados.results.forecast[i].max + "°C";
+        temperaturaMaximaProximaElement.classList.add("temp-max");
+
+        var temperaturaMinimaProximaElement = document.createElement("p");
+        temperaturaMinimaProximaElement.textContent = "min: " + dados.results.forecast[i].min + "°C";
+        temperaturaMinimaProximaElement.classList.add("temp-min");
+
+        temperaturaContainerDias.appendChild(temperaturaMaximaProximaElement);
+        temperaturaContainerDias.appendChild(temperaturaMinimaProximaElement);
+
+        var condicaoContainerDias = document.createElement("div");
+        condicaoContainerDias.classList.add("linha-container");
+
+        var condicaoProximaElement = document.createElement("img");
+        condicaoProximaElement.src = "https://assets.hgbrasil.com/weather/icons/conditions/" + dados.results.forecast[i].condition + ".svg";
+        condicaoProximaElement.alt = "Condição do Dia";
+        condicaoProximaElement.height = 40;
+        condicaoProximaElement.width = 40;
+
+        var descricaoElementDias = document.createElement("p");
+        descricaoElementDias.textContent = dados.results.forecast[i].description;
+
+        condicaoContainerDias.appendChild(condicaoProximaElement);
+        condicaoContainerDias.appendChild(descricaoElementDias);
+
+        var probabilidadeChuvaProximaElement = document.createElement("p");
+        probabilidadeChuvaProximaElement.textContent = "Probabilidade de chuva: " + dados.results.forecast[i].rain_probability + "%";
+
+        dadosPrevisaoDiv.appendChild(dataProximaElement);
+        dadosPrevisaoDiv.appendChild(temperaturaContainerDias);
+        dadosPrevisaoDiv.appendChild(condicaoContainerDias);
+        dadosPrevisaoDiv.appendChild(probabilidadeChuvaProximaElement);
+      }
+    }
+
+    function addCidadeRecente(cidade) {
+      var cidades = getCidadesRecentes();
+
+      // Verificar se a cidade já está na lista
+      if (cidades.indexOf(cidade) === -1) {
+        // Adicionar a cidade à lista
+        cidades.unshift(cidade);
+
+        // Limitar o tamanho da lista
+        if (cidades.length > 10) {
+          cidades.pop(); // Remove o último item da lista
+        }
+
+        // Atualizar o cache
+        localStorage.setItem('cidades', JSON.stringify(cidades));
+
+        // Atualizar o select list
+        preencherSelectList();
+      }
+    }
+
+    function getCidadesRecentes() {
+      var cidades = JSON.parse(localStorage.getItem('cidades')) || [];
+      return cidades;
+    }
+
+    function preencherSelectList() {
+      var selectList = document.getElementById('cidadesRecentes');
+
+      // Limpar o select list antes de preencher
+      selectList.innerHTML = '';
+
+      var option = document.createElement('option');
+      option.value = '1';
+      option.textContent = 'Buscas Recentes';
+      selectList.appendChild(option);
+      var cidadesRecentes = getCidadesRecentes();
+
+      // Adicionar as opções ao select list
+      cidadesRecentes.forEach(function (cidade) {
+        option = document.createElement('option');
+        option.value = cidade;
+        option.textContent = cidade;
+        selectList.appendChild(option);
+      });
+    }
+
+    document.getElementById('cidadesRecentes').addEventListener('change', function () {
+      // Verificar se o valor selecionado é diferente de 1
+      if (this.value !== '1') {
+        // Obter o valor selecionado e atribuir ao campo endereco
+        var enderecoInput = document.getElementById('endereco');
+        enderecoInput.value = this.value;
+
+        // Executar a função buscarEndereco()
+        buscarEndereco();
+      }
+    });
+
+    // Chama a função onPageLoad quando a página estiver carregada
+    document.addEventListener("DOMContentLoaded", onPageLoad);
+
+    // Função a ser chamada quando a página é carregada
+    function onPageLoad() {
+      // Inicializar o mapa
+      map = new ol.Map({
+        target: 'map',
+        layers: [
+          new ol.layer.Tile({
+            source: new ol.source.OSM()
+          })
+        ],
+        view: new ol.View({
+          center: ol.proj.fromLonLat([0, 0]),
+          zoom: 2
+        })
+      });
+
+      // Preencher o select list com as cidades buscadas recentemente
+      preencherSelectList();
+    }
+  </script>
+
+  <script src="https://cdn.rawgit.com/openlayers/openlayers.github.io/master/en/v5.3.0/build/ol.js"></script>
+</body>
+
+</html>
